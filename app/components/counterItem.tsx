@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
-import { submitCounterTransaction, fetchCounterValue } from '../lib/transactions';
+import { useWallet } from '@aptos-labs/wallet-adapter-react';
+import { submitCounterTransaction, submitCounterTransactionNative, fetchCounterValue } from '../lib/transactions';
 import { useSignRawHash } from '@privy-io/react-auth/extended-chains';
 
 interface CounterItemProps {
@@ -13,6 +14,7 @@ interface CounterItemProps {
 export default function CounterItem({ username, onToast }: CounterItemProps) {
     const { user } = usePrivy();
     const { signRawHash } = useSignRawHash();
+    const { account, signTransaction } = useWallet();
     const [counter, setCounter] = useState<number>(0);
     const [isLoading, setIsLoading] = useState(false);
     const [lastAction, setLastAction] = useState<string>('');
@@ -41,6 +43,7 @@ export default function CounterItem({ username, onToast }: CounterItemProps) {
             }
         } catch (error) {
             console.error('Error fetching counter:', error);
+            // Don't show toast for fetch errors as they're background operations
         }
     };
 
@@ -49,7 +52,8 @@ export default function CounterItem({ username, onToast }: CounterItemProps) {
     }, [username]);
 
     const handleCounterAction = async (action: 'increment' | 'decrement') => {
-        if (!user) return;
+        // Check if either wallet is connected
+        if (!user && !account) return;
 
         // Update pending counts
         if (action === 'increment') {
@@ -77,7 +81,7 @@ export default function CounterItem({ username, onToast }: CounterItemProps) {
 
 
     const syncPendingCounts = async () => {
-        if (!user || isSyncing) return;
+        if (isSyncing) return;
 
         const incrementAmount = pendingIncrement.current;
         const decrementAmount = pendingDecrement.current;
@@ -89,40 +93,84 @@ export default function CounterItem({ username, onToast }: CounterItemProps) {
         setIsLoading(true);
 
         try {
-            const moveWallet = user.linkedAccounts?.find(
-                (account: any) => account.chainType === 'aptos'
-            ) as any;
+            // Check if using native wallet or Privy wallet
+            // Prioritize Privy wallet if both are available
+            const isPrivyWallet = !!user?.linkedAccounts?.find(
+                (acc: any) => acc.chainType === 'aptos'
+            );
+            const isNativeWallet = !!account && !isPrivyWallet;
 
-            if (!moveWallet) {
-                throw new Error('No Movement wallet found');
+            console.log('Wallet detection:', { isPrivyWallet, isNativeWallet, hasUser: !!user, hasAccount: !!account });
+
+            if (!isNativeWallet && !isPrivyWallet) {
+                throw new Error('No wallet connected');
             }
 
             const promises = [];
 
-            // Submit increment transaction if there are pending increments
-            if (incrementAmount > 0) {
-                promises.push(
-                    submitCounterTransaction(
-                        'increment',
-                        incrementAmount,
-                        moveWallet.address,
-                        moveWallet.publicKey,
-                        signRawHash
-                    )
-                );
-            }
+            if (isNativeWallet) {
+                console.log('Using native wallet:', { address: account?.address.toString() });
+                // Use native wallet adapter for transactions
+                if (incrementAmount > 0) {
+                    promises.push(
+                        submitCounterTransactionNative(
+                            'increment',
+                            incrementAmount,
+                            account?.address.toString(),
+                            signTransaction
+                        )
+                    );
+                }
 
-            // Submit decrement transaction if there are pending decrements
-            if (decrementAmount > 0) {
-                promises.push(
-                    submitCounterTransaction(
-                        'decrement',
-                        decrementAmount,
-                        moveWallet.address,
-                        moveWallet.publicKey,
-                        signRawHash
-                    )
-                );
+                if (decrementAmount > 0) {
+                    promises.push(
+                        submitCounterTransactionNative(
+                            'decrement',
+                            decrementAmount,
+                            account?.address.toString(),
+                            signTransaction
+                        )
+                    );
+                }
+            } else if (isPrivyWallet) {
+                // Use Privy wallet for transactions
+                const moveWallet = user!.linkedAccounts!.find(
+                    (acc: any) => acc.chainType === 'aptos'
+                ) as any;
+
+                if (!moveWallet) {
+                    throw new Error('Privy wallet not found');
+                }
+
+                console.log('Using Privy wallet:', { address: moveWallet.address, publicKey: moveWallet.publicKey });
+
+                if (!signRawHash) {
+                    throw new Error('signRawHash function not available');
+                }
+
+                if (incrementAmount > 0) {
+                    promises.push(
+                        submitCounterTransaction(
+                            'increment',
+                            incrementAmount,
+                            moveWallet.address,
+                            moveWallet.publicKey,
+                            signRawHash
+                        )
+                    );
+                }
+
+                if (decrementAmount > 0) {
+                    promises.push(
+                        submitCounterTransaction(
+                            'decrement',
+                            decrementAmount,
+                            moveWallet.address,
+                            moveWallet.publicKey,
+                            signRawHash
+                        )
+                    );
+                }
             }
 
             // Wait for all transactions to complete
@@ -149,17 +197,31 @@ export default function CounterItem({ username, onToast }: CounterItemProps) {
             // Refresh from blockchain
             refreshCounter();
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error syncing pending counts:', error);
+            console.error('Error details:', {
+                message: error?.message,
+                stack: error?.stack,
+                response: error?.response
+            });
 
-            // Show error toast
+            // Show error toast with more details
+            const errorMessage = error?.message || 'Failed to sync changes to blockchain';
             onToast?.(
-                'Failed to sync changes to blockchain. Please try again.',
+                errorMessage,
                 'error'
             );
 
+            // Reset pending counts on error to prevent stuck state
+            pendingIncrement.current = 0;
+            pendingDecrement.current = 0;
+            setPendingCount(0);
+
+            // Show error action and clear it after delay
             setLastAction('❌ Sync Failed');
-            setTimeout(() => setLastAction(''), 2000);
+            setTimeout(() => {
+                setLastAction('');
+            }, 3000);
         } finally {
             setIsSyncing(false);
             setIsLoading(false);
@@ -207,7 +269,7 @@ export default function CounterItem({ username, onToast }: CounterItemProps) {
                     >
                         {getLevelEmoji()} Level {level}
                     </div>
-                    
+
                     {/* Pending Count Display */}
                     {pendingCount > 0 && (
                         <div
@@ -221,7 +283,7 @@ export default function CounterItem({ username, onToast }: CounterItemProps) {
                             {isSyncing ? '⏳ Syncing...' : `⏱️ Pending: ${pendingCount}`}
                         </div>
                     )}
-                    
+
                     <div
                         className="px-4 py-2 rounded-lg font-bold text-white"
                         style={{
@@ -292,7 +354,7 @@ export default function CounterItem({ username, onToast }: CounterItemProps) {
                             {isLoading || isSyncing ? '⏳' : '➖ DECREMENT'}
                         </button>
                     </div>
-                    
+
                     {/* Manual Sync Button */}
                     {pendingCount > 0 && !isSyncing && (
                         <button

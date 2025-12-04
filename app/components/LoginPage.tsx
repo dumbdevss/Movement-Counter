@@ -1,10 +1,8 @@
 'use client';
 
-import { usePrivy } from '@privy-io/react-auth';
+import { WalletSelectionModal } from './wallet-selection-modal';
 
 export default function LoginPage() {
-  const { login, ready } = usePrivy();
-
   return (
     <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 md:p-8" style={{ backgroundColor: '#e8f4f8' }}>
       <div className="bg-white rounded-xl md:rounded-2xl text-center my-4" style={{
@@ -38,20 +36,20 @@ export default function LoginPage() {
           Increment, decrement, and level up your counter!
         </p>
 
-        <button
-          onClick={login}
-          disabled={!ready}
-          className="font-bold text-white text-lg sm:text-xl transition-opacity hover:opacity-90 disabled:opacity-50 rounded-lg"
-          style={{
-            backgroundColor: '#0099ff',
-            border: '3px solid black',
-            boxShadow: '3px 3px 0px black',
-            padding: '8px 20px',
-            margin: '15px'
-          }}
-        >
-          {ready ? 'LOGIN →' : 'LOADING...'}
-        </button>
+        <WalletSelectionModal>
+          <button
+            className="font-bold text-white text-lg sm:text-xl transition-opacity hover:opacity-90 disabled:opacity-50 rounded-lg"
+            style={{
+              backgroundColor: '#0099ff',
+              border: '3px solid black',
+              boxShadow: '3px 3px 0px black',
+              padding: '8px 20px',
+              margin: '15px'
+            }}
+          >
+            CONNECT WALLET →
+          </button>
+        </WalletSelectionModal>
 
         <style jsx>{`
           @media (min-width: 640px) {

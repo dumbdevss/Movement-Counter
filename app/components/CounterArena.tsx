@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
+import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import CounterItem from './counterItem';
 import WalletDropdown from './WalletDropdown';
 import Toast from './Toast';
@@ -11,17 +12,39 @@ interface CounterArenaProps {
 }
 
 export default function CounterArena({ username }: CounterArenaProps) {
-  const { logout } = usePrivy();
+  const { logout: privyLogout, authenticated } = usePrivy();
+  const { disconnect, connected } = useWallet();
   const [showStats, setShowStats] = useState(false);
   const [showWalletDropdown, setShowWalletDropdown] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; isVisible: boolean }>({ message: '', type: 'info', isVisible: false });
+
+  // Determine which wallet type is being used
+  const isPrivyWallet = authenticated;
+  const isNativeWallet = connected && !authenticated;
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type, isVisible: true });
   };
 
   const hideToast = () => {
-    setToast(prev => ({ ...prev, isVisible: false }));
+    // Fully reset toast state to ensure clean state
+    setToast({ message: '', type: 'info', isVisible: false });
+  };
+
+  // Handle logout/disconnect based on wallet type
+  const handleLogout = async () => {
+    try {
+      if (isPrivyWallet) {
+        await privyLogout();
+        showToast('Logged out from Privy', 'info');
+      } else if (isNativeWallet) {
+        await disconnect();
+        showToast('Wallet disconnected', 'info');
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+      showToast('Error disconnecting wallet', 'error');
+    }
   };
 
   return (
@@ -39,8 +62,18 @@ export default function CounterArena({ username }: CounterArenaProps) {
             <h1 className="text-3xl font-black mb-2" style={{ letterSpacing: '0.05em' }}>
               🎮 COUNTER GAME 🎮
             </h1>
-            <p className="text-gray-600">
+            <p className="text-gray-600 flex items-center gap-2">
               Increment or decrement your counter and level up!
+              {isPrivyWallet && (
+                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-semibold">
+                  Privy
+                </span>
+              )}
+              {isNativeWallet && (
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-semibold">
+                  Native
+                </span>
+              )}
             </p>
           </div>
           
@@ -68,7 +101,7 @@ export default function CounterArena({ username }: CounterArenaProps) {
             </div>
             
             <button
-              onClick={logout}
+              onClick={handleLogout}
               className="font-bold text-white px-4 py-2 rounded-lg transition-opacity hover:opacity-90"
               style={{
                 backgroundColor: '#ff4444',
@@ -76,7 +109,7 @@ export default function CounterArena({ username }: CounterArenaProps) {
                 boxShadow: '3px 3px 0px black'
               }}
             >
-              🚪 LOGOUT
+              {isPrivyWallet ? '🚪 LOGOUT' : '🔌 DISCONNECT'}
             </button>
           </div>
         </div>
@@ -149,7 +182,7 @@ export default function CounterArena({ username }: CounterArenaProps) {
           }}
         >
           <h2 className="text-2xl font-black mb-4">🎲 HOW TO PLAY</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <h3 className="text-lg font-bold mb-2" style={{ color: '#0099ff' }}>
                 🚀 Level Up System
@@ -171,6 +204,29 @@ export default function CounterArena({ username }: CounterArenaProps) {
                 <li>• Failed transactions don't break streak</li>
                 <li>• Higher streaks = bragging rights</li>
                 <li>• Keep clicking to build momentum!</li>
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="text-lg font-bold mb-2" style={{ color: isPrivyWallet ? '#0099ff' : '#00cc88' }}>
+                {isPrivyWallet ? '💳 Privy Wallet' : '🔐 Native Wallet'}
+              </h3>
+              <ul className="text-sm text-gray-600 space-y-1">
+                {isPrivyWallet ? (
+                  <>
+                    <li>• Social login convenience</li>
+                    <li>• Embedded wallet solution</li>
+                    <li>• ⛽ Gas sponsored by Shinami</li>
+                    <li>• Wallet managed by Privy</li>
+                  </>
+                ) : (
+                  <>
+                    <li>• ⛽ Gas sponsored by Shinami</li>
+                    <li>• Manual transaction approval</li>
+                    <li>• Full wallet control</li>
+                    <li>• Self-custody security</li>
+                  </>
+                )}
               </ul>
             </div>
           </div>
